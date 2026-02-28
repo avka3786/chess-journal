@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Game {
+  id                Int       @id @default(autoincrement())
+  importedAt        DateTime  @default(now())
+  playedAt          DateTime?
+  source            String    @default("chess.com")
+  white             String
+  black             String
+  result            String
+  timeControl       String?
+  eco               String?
+  opening           String?
+  pgn               String
+  // Review workflow
+  reviewedAt        DateTime?
+  reviewDurationMin Int?
+  nextHabit         String?
+  weeklyDrill       String?
+  reviewNotes       String?
+  moves             Move[]
+}
+
+model Move {
+  id                Int          @id @default(autoincrement())
+  gameId            Int
+  ply               Int
+  san               String
+  fenBefore         String
+  fenAfter          String
+  selectedForReview Boolean      @default(false)
+  game              Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  annotations       Annotation[]
+
+  @@unique([gameId, ply])
+}
+
+// Bucket values: STEP1 | STEP2 | STEP3 | STEP4
+// (SQLite has no native enum; validated at the application layer)
+model Annotation {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  moveId    Int
+  bucket    String
+  note      String
+  tags      String?
+  severity  Int?
+  move      Move     @relation(fields: [moveId], references: [id], onDelete: Cascade)
+}
