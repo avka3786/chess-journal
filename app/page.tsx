@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import ProgressChart, { type WeekPoint, type StepTrend } from "./ProgressChart";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function Home() {
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const fortnightAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const twelveWeeksAgo = new Date(now.getTime() - 84 * 24 * 60 * 60 * 1000);
 
   const [
     totalGames,
@@ -40,6 +42,7 @@ export default async function Home() {
     lastReviewedGame,
     recentTagAnnotations,
     totalAnnotations,
+    rawProgressAnnotations,
   ] = await Promise.all([
     db.game.count(),
     db.game.count({ where: { reviewedAt: { not: null } } }),
@@ -72,6 +75,10 @@ export default async function Home() {
       select: { tags: true },
     }),
     db.annotation.count(),
+    db.annotation.findMany({
+      where: { createdAt: { gte: twelveWeeksAgo } },
+      select: { createdAt: true, bucket: true },
+    }),
   ]);
 
   // ── Focus step ─────────────────────────────────────────────────────────────
@@ -99,6 +106,59 @@ export default async function Home() {
   const topTags = Object.entries(tagFreq)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
+
+  // ── Progress over time ─────────────────────────────────────────────────────
+  // Build ordered list of the last 12 ISO-weeks (Mon–Sun labels)
+  function isoWeekKey(d: Date): string {
+    // Monday of that week
+    const day = d.getDay(); // 0=Sun
+    const diff = (day === 0 ? -6 : 1) - day;
+    const mon = new Date(d);
+    mon.setDate(d.getDate() + diff);
+    mon.setHours(0, 0, 0, 0);
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${monthNames[mon.getMonth()]} ${mon.getDate()}`;
+  }
+
+  // Generate 12 week-start dates in order
+  const weekKeys: string[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+    const key = isoWeekKey(d);
+    if (!weekKeys.includes(key)) weekKeys.push(key);
+  }
+
+  const weekMap: Record<string, WeekPoint> = {};
+  for (const key of weekKeys) {
+    weekMap[key] = { week: key, STEP1: 0, STEP2: 0, STEP3: 0, STEP4: 0 };
+  }
+  for (const ann of rawProgressAnnotations) {
+    const key = isoWeekKey(ann.createdAt);
+    if (weekMap[key] && (ann.bucket === "STEP1" || ann.bucket === "STEP2" || ann.bucket === "STEP3" || ann.bucket === "STEP4")) {
+      weekMap[key][ann.bucket]++;
+    }
+  }
+  const progressData: WeekPoint[] = weekKeys.map((k) => weekMap[k]);
+
+  // Linear regression slope per step
+  function slope(values: number[]): number {
+    const n = values.length;
+    if (n < 2) return 0;
+    const xMean = (n - 1) / 2;
+    const yMean = values.reduce((s, v) => s + v, 0) / n;
+    let num = 0, den = 0;
+    values.forEach((y, x) => {
+      num += (x - xMean) * (y - yMean);
+      den += (x - xMean) ** 2;
+    });
+    return den === 0 ? 0 : num / den;
+  }
+
+  const stepTrends: Record<string, StepTrend> = {};
+  for (const key of ["STEP1", "STEP2", "STEP3", "STEP4"] as const) {
+    const vals = progressData.map((p) => p[key]);
+    stepTrends[key] = { slope: slope(vals), total: vals.reduce((s, v) => s + v, 0) };
+  }
 
   // ── Habit ──────────────────────────────────────────────────────────────────
   const habitText =
@@ -307,6 +367,17 @@ export default async function Home() {
               <p className="text-gray-500 text-sm">No tagged annotations yet.</p>
             )}
           </div>
+        </div>
+
+        {/* ── E) Progress Over Time ───────────────────────────────────── */}
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <div className="mb-5">
+            <h2 className="font-bold text-lg">Progress Over Time</h2>
+            <p className="text-gray-500 text-sm mt-0.5">
+              Mistakes per step — weekly, last 12 weeks
+            </p>
+          </div>
+          <ProgressChart data={progressData} trends={stepTrends} />
         </div>
 
         {/* ── Stat cards ──────────────────────────────────────────────── */}
