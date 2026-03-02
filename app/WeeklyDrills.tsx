@@ -1,0 +1,128 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+export type DrillEntry = {
+  motif: string;
+  count: number;
+  score: number;
+  lichessUrl: string | null;
+  label: string;
+};
+
+export type DrillsData = {
+  analyzedGames: number;
+  analyzedMoves: number;
+  lastUpdated: string | null;
+  topDrills: DrillEntry[];
+};
+
+export default function WeeklyDrills({ data }: { data: DrillsData }) {
+  const router = useRouter();
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<string | null>(null);
+
+  async function handleRunAnalysis() {
+    setRunning(true);
+    setRunResult(null);
+    try {
+      const res = await fetch("/api/analyze/weekly", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error ?? "Analysis failed");
+      setRunResult(
+        d.analyzed === 0
+          ? "All recent games already analyzed."
+          : `Analyzed ${d.analyzed} game${d.analyzed !== 1 ? "s" : ""}. Refreshing…`
+      );
+      if (d.analyzed > 0) router.refresh();
+    } catch (e) {
+      setRunResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+        <div>
+          <h2 className="font-bold text-lg">This week&apos;s drills</h2>
+          <p className="text-gray-500 text-sm mt-0.5">
+            Top recurring mistake motifs (last 7 days)
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5">
+          <button
+            onClick={handleRunAnalysis}
+            disabled={running}
+            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded font-medium transition-colors"
+          >
+            {running ? "Analyzing…" : "Run weekly analysis"}
+          </button>
+          {data.lastUpdated && (
+            <p className="text-xs text-gray-600">
+              Last: {new Date(data.lastUpdated).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="flex gap-4 mb-5 text-xs text-gray-500">
+        <span>{data.analyzedGames} game{data.analyzedGames !== 1 ? "s" : ""} analyzed</span>
+        <span>·</span>
+        <span>{data.analyzedMoves} moves (depth 14)</span>
+      </div>
+
+      {/* Top drills */}
+      {data.topDrills.length === 0 ? (
+        <p className="text-gray-500 text-sm">
+          No findings yet. Run analysis on games from the last 7 days.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {data.topDrills.map((drill, i) => (
+            <div
+              key={drill.motif}
+              className="flex items-center gap-3 border border-gray-800 rounded-lg p-3"
+            >
+              <span className="text-2xl font-bold tabular-nums text-gray-600 w-6 shrink-0">
+                {i + 1}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">{drill.label}</p>
+                <p className="text-xs text-gray-500">
+                  {drill.count} mistake{drill.count !== 1 ? "s" : ""} · score {Math.round(drill.score)}
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Link
+                  href={`/findings?motif=${drill.motif}`}
+                  className="text-xs border border-gray-700 px-2.5 py-1 rounded hover:bg-gray-800 transition-colors"
+                >
+                  Examples
+                </Link>
+                {drill.lichessUrl && (
+                  <a
+                    href={drill.lichessUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs bg-orange-500 hover:bg-orange-600 text-white px-2.5 py-1 rounded transition-colors"
+                  >
+                    Train ↗
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {runResult && (
+        <p className="mt-3 text-xs text-gray-400">{runResult}</p>
+      )}
+    </div>
+  );
+}

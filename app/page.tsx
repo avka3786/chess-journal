@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import ProgressChart, { type WeekPoint, type StepTrend } from "./ProgressChart";
+import LichessQuickImport from "./LichessQuickImport";
+import WeeklyDrills, { type DrillsData } from "./WeeklyDrills";
+import { MOTIF_META } from "@/lib/motifMeta";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +46,8 @@ export default async function Home() {
     recentTagAnnotations,
     totalAnnotations,
     rawProgressAnnotations,
+    recentFindings,
+    engineStats,
   ] = await Promise.all([
     db.game.count(),
     db.game.count({ where: { reviewedAt: { not: null } } }),
@@ -78,6 +83,15 @@ export default async function Home() {
     db.annotation.findMany({
       where: { createdAt: { gte: twelveWeeksAgo } },
       select: { createdAt: true, bucket: true },
+    }),
+    db.finding.findMany({
+      where: { createdAt: { gte: weekAgo } },
+      select: { motif: true, swingCp: true },
+    }),
+    db.game.aggregate({
+      where: { engineDepth: { gte: 14 } },
+      _count: { id: true },
+      _max: { engineReviewedAt: true },
     }),
   ]);
 
@@ -160,6 +174,35 @@ export default async function Home() {
     stepTrends[key] = { slope: slope(vals), total: vals.reduce((s, v) => s + v, 0) };
   }
 
+  // ── Weekly drills (top 2 motifs by score) ──────────────────────────────────
+  const motifAgg: Record<string, { count: number; totalSwing: number }> = {};
+  for (const f of recentFindings) {
+    if (!motifAgg[f.motif]) motifAgg[f.motif] = { count: 0, totalSwing: 0 };
+    motifAgg[f.motif].count++;
+    motifAgg[f.motif].totalSwing += Math.abs(f.swingCp ?? 150);
+  }
+  const topDrills = Object.entries(motifAgg)
+    .map(([motif, { count, totalSwing }]) => ({
+      motif,
+      count,
+      score: count * 1 + totalSwing / 300,
+      label: MOTIF_META[motif]?.label ?? motif,
+      lichessUrl: MOTIF_META[motif]?.lichessUrl ?? null,
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2);
+
+  const analyzedMoves = await db.engineEval.count({
+    where: { move: { game: { engineDepth: { gte: 14 } } } },
+  });
+
+  const drillsData: DrillsData = {
+    analyzedGames: engineStats._count.id,
+    analyzedMoves,
+    lastUpdated: engineStats._max.engineReviewedAt?.toISOString() ?? null,
+    topDrills,
+  };
+
   // ── Habit ──────────────────────────────────────────────────────────────────
   const habitText =
     lastReviewedGame?.nextHabit ??
@@ -202,6 +245,7 @@ export default async function Home() {
               View Games
             </Link>
           </div>
+          <LichessQuickImport />
         </div>
       </div>
 
@@ -379,6 +423,9 @@ export default async function Home() {
           </div>
           <ProgressChart data={progressData} trends={stepTrends} />
         </div>
+
+        {/* ── F) Weekly Drills ────────────────────────────────────────── */}
+        <WeeklyDrills data={drillsData} />
 
         {/* ── Stat cards ──────────────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-4">

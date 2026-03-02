@@ -26,6 +26,10 @@ model Game {
   weeklyDrill       String?
   reviewNotes       String?
   externalUrl       String?
+  // Engine analysis
+  heroColor         String?   // "white" | "black"
+  engineReviewedAt  DateTime?
+  engineDepth       Int?
   moves             Move[]
 }
 
@@ -39,6 +43,8 @@ model Move {
   selectedForReview Boolean      @default(false)
   game              Game         @relation(fields: [gameId], references: [id], onDelete: Cascade)
   annotations       Annotation[]
+  engineEval        EngineEval?
+  finding           Finding?
 
   @@unique([gameId, ply])
 }
@@ -46,16 +52,45 @@ model Move {
 // Bucket values: STEP1 | STEP2 | STEP3 | STEP4
 // (SQLite has no native enum; validated at the application layer)
 model Annotation {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  moveId    Int
-  bucket    String
-  note      String
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  moveId      Int
+  bucket      String
+  note        String
   tags        String?
   severity    Int?
   source      String?   // "manual" | "lichess"
-  rawComment  String?   // original Lichess comment text
-  confidence  Int?      // classifier confidence: 25 | 70 | 90
+  rawComment  String?
+  confidence  Int?
   move        Move     @relation(fields: [moveId], references: [id], onDelete: Cascade)
+}
+
+// One eval per move (unique on moveId). Eval stored White-perspective.
+model EngineEval {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  moveId      Int      @unique
+  move        Move     @relation(fields: [moveId], references: [id], onDelete: Cascade)
+  depth       Int
+  evalCp      Int?     // centipawns, White perspective
+  evalMate    Int?     // mate-in-N, White perspective (negative = opponent mates)
+  bestMoveUci String?
+  pvUci       String?  // first ~8 moves, space-separated UCI
+}
+
+// MotifKey values (SQLite has no enum; validated at app layer):
+// MATE_IN_1 | MATE_IN_2 | BACK_RANK_MATE | HANGING_PIECE | FORK | PIN | SKEWER |
+// DISCOVERED_ATTACK | DISCOVERED_CHECK | DEFLECTION | ATTRACTION | INTERMEZZO |
+// TRAPPED_PIECE | DEFENSIVE_MOVE | QUIET_MOVE
+model Finding {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  moveId     Int      @unique
+  move       Move     @relation(fields: [moveId], references: [id], onDelete: Cascade)
+  swingCp    Int?
+  swingMate  Int?
+  motif      String   // MotifKey
+  confidence Int      // 0–100
+  reason     String
 }
