@@ -23,13 +23,21 @@ export function parseLichessUrl(url: string): LichessUrlParsed | null {
 
 export type LichessChapter = { id: string; name: string };
 
+function lichessHeaders(extra: Record<string, string> = {}): HeadersInit {
+  const token = process.env.LICHESS_API_TOKEN;
+  return {
+    ...extra,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 /** Fetch the list of chapters for a study (NDJSON). */
 export async function fetchChapters(
   studyId: string
 ): Promise<LichessChapter[]> {
   const res = await fetch(
     `https://lichess.org/api/study/${studyId}/chapters`,
-    { headers: { Accept: "application/x-ndjson" } }
+    { headers: lichessHeaders({ Accept: "application/x-ndjson" }) }
   );
   if (!res.ok)
     throw new Error(`Lichess API ${res.status}: ${res.statusText}`);
@@ -51,7 +59,7 @@ export async function fetchChapterPgn(
 ): Promise<string> {
   const res = await fetch(
     `https://lichess.org/api/study/${studyId}/${chapterId}.pgn?comments=true&clocks=false&variations=false`,
-    { headers: { Accept: "application/x-chess-pgn" } }
+    { headers: lichessHeaders({ Accept: "application/x-chess-pgn" }) }
   );
   if (!res.ok)
     throw new Error(`Lichess API ${res.status}: ${res.statusText}`);

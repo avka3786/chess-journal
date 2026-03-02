@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import ProgressChart, { type WeekPoint, type StepTrend } from "./ProgressChart";
 import LichessQuickImport from "./LichessQuickImport";
 import WeeklyDrills, { type DrillsData } from "./WeeklyDrills";
-import { MOTIF_META } from "@/lib/motifMeta";
+import { computeDrills } from "@/lib/drills";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +48,7 @@ export default async function Home() {
     rawProgressAnnotations,
     recentFindings,
     engineStats,
+    recentAnnotations,
   ] = await Promise.all([
     db.game.count(),
     db.game.count({ where: { reviewedAt: { not: null } } }),
@@ -92,6 +93,10 @@ export default async function Home() {
       where: { engineDepth: { gte: 14 } },
       _count: { id: true },
       _max: { engineReviewedAt: true },
+    }),
+    db.annotation.findMany({
+      where: { createdAt: { gte: weekAgo } },
+      select: { note: true, bucket: true },
     }),
   ]);
 
@@ -174,23 +179,8 @@ export default async function Home() {
     stepTrends[key] = { slope: slope(vals), total: vals.reduce((s, v) => s + v, 0) };
   }
 
-  // ── Weekly drills (top 2 motifs by score) ──────────────────────────────────
-  const motifAgg: Record<string, { count: number; totalSwing: number }> = {};
-  for (const f of recentFindings) {
-    if (!motifAgg[f.motif]) motifAgg[f.motif] = { count: 0, totalSwing: 0 };
-    motifAgg[f.motif].count++;
-    motifAgg[f.motif].totalSwing += Math.abs(f.swingCp ?? 150);
-  }
-  const topDrills = Object.entries(motifAgg)
-    .map(([motif, { count, totalSwing }]) => ({
-      motif,
-      count,
-      score: count * 1 + totalSwing / 300,
-      label: MOTIF_META[motif]?.label ?? motif,
-      lichessUrl: MOTIF_META[motif]?.lichessUrl ?? null,
-    }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 2);
+  // ── Weekly drills ──────────────────────────────────────────────────────────
+  const [drill1, drill2] = computeDrills(recentAnnotations, recentFindings);
 
   const analyzedMoves = await db.engineEval.count({
     where: { move: { game: { engineDepth: { gte: 14 } } } },
@@ -200,7 +190,8 @@ export default async function Home() {
     analyzedGames: engineStats._count.id,
     analyzedMoves,
     lastUpdated: engineStats._max.engineReviewedAt?.toISOString() ?? null,
-    topDrills,
+    drill1,
+    drill2,
   };
 
   // ── Habit ──────────────────────────────────────────────────────────────────
