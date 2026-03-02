@@ -49,6 +49,12 @@ export default function ImportPage() {
           ← Home
         </Link>
         <h1 className="text-2xl font-bold">Import PGN</h1>
+        <Link
+          href="/import/lichess"
+          className="ml-auto text-sm bg-orange-50 border border-orange-200 text-orange-700 px-3 py-1 rounded hover:bg-orange-100"
+        >
+          Import from Lichess Study →
+        </Link>
       </div>
 
       <div className="mb-4">

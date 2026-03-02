@@ -25,6 +25,7 @@ model Game {
   nextHabit         String?
   weeklyDrill       String?
   reviewNotes       String?
+  externalUrl       String?
   moves             Move[]
 }
 
@@ -51,7 +52,10 @@ model Annotation {
   moveId    Int
   bucket    String
   note      String
-  tags      String?
-  severity  Int?
-  move      Move     @relation(fields: [moveId], references: [id], onDelete: Cascade)
+  tags        String?
+  severity    Int?
+  source      String?   // "manual" | "lichess"
+  rawComment  String?   // original Lichess comment text
+  confidence  Int?      // classifier confidence: 25 | 70 | 90
+  move        Move     @relation(fields: [moveId], references: [id], onDelete: Cascade)
 }

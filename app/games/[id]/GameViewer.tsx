@@ -34,6 +34,8 @@ type AnnotationData = {
   note: string;
   tags: string | null;
   severity: number | null;
+  source: string | null;
+  confidence: number | null;
   createdAt: Date;
 };
 
@@ -88,6 +90,7 @@ export default function GameViewer({ game }: { game: GameData }) {
   const [form, setForm] = useState(BLANK_FORM);
   const [formError, setFormError] = useState("");
   const [flipped, setFlipped] = useState(false);
+  const [filterSource, setFilterSource] = useState<"all" | "manual" | "lichess">("all");
 
   // Derived state
   const selectedMove =
@@ -290,6 +293,23 @@ export default function GameViewer({ game }: { game: GameData }) {
 
       {/* ── Right panel ────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 flex flex-col gap-4">
+        {/* Annotation source filter */}
+        <div className="flex gap-1 text-xs">
+          {(["all", "manual", "lichess"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilterSource(f)}
+              className={`px-2.5 py-1 rounded border transition-colors ${
+                filterSource === f
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {f === "all" ? "All" : f === "manual" ? "Manual" : "Lichess"}
+            </button>
+          ))}
+        </div>
+
         {/* Move list */}
         <div className="border rounded p-3 max-h-72 overflow-y-auto font-mono text-sm">
           {movePairs.length === 0 ? (
@@ -328,6 +348,7 @@ export default function GameViewer({ game }: { game: GameData }) {
               form={form}
               formError={formError}
               isPending={isPending}
+              filterSource={filterSource}
               onLoadAnnotation={loadAnnotation}
               onDelete={handleDelete}
               onFormChange={(patch) =>
@@ -338,6 +359,8 @@ export default function GameViewer({ game }: { game: GameData }) {
             />
           )}
         </div>
+
+
       </div>
     </div>
   );
@@ -412,6 +435,7 @@ function AnnotationPanel({
   form,
   formError,
   isPending,
+  filterSource,
   onLoadAnnotation,
   onDelete,
   onFormChange,
@@ -423,6 +447,7 @@ function AnnotationPanel({
   form: FormState;
   formError: string;
   isPending: boolean;
+  filterSource: "all" | "manual" | "lichess";
   onLoadAnnotation: (ann: AnnotationData) => void;
   onDelete: (id: string) => void;
   onFormChange: (patch: Partial<FormState>) => void;
@@ -441,61 +466,82 @@ function AnnotationPanel({
       </h2>
 
       {/* Existing annotations list */}
-      {move.annotations.length === 0 ? (
-        <p className="text-xs text-gray-400 mb-3">
-          No annotations yet for this move.
-        </p>
-      ) : (
-        <div className="mb-4 space-y-2">
-          {move.annotations.map((ann) => {
-            const bucketLabel =
-              BUCKETS.find((b) => b.value === ann.bucket)?.label ?? ann.bucket;
-            const isEditing = editingId === ann.id;
-            return (
-              <div
-                key={ann.id}
-                className={`border rounded p-2.5 text-sm cursor-pointer transition-colors ${
-                  isEditing
-                    ? "border-blue-400 bg-blue-50"
-                    : "hover:bg-gray-50"
-                }`}
-                onClick={() => onLoadAnnotation(ann)}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium text-blue-700 block">
-                      {bucketLabel}
-                      {ann.severity != null && (
-                        <span className="ml-2 text-gray-400 font-normal">
-                          severity {ann.severity}
+      {(() => {
+        const visible = move.annotations.filter((ann) => {
+          if (filterSource === "all") return true;
+          if (filterSource === "lichess") return ann.source === "lichess";
+          return ann.source !== "lichess"; // "manual"
+        });
+        if (visible.length === 0) {
+          return (
+            <p className="text-xs text-gray-400 mb-3">
+              {move.annotations.length === 0
+                ? "No annotations yet for this move."
+                : "No annotations match the current filter."}
+            </p>
+          );
+        }
+        return (
+          <div className="mb-4 space-y-2">
+            {visible.map((ann) => {
+              const bucketLabel =
+                BUCKETS.find((b) => b.value === ann.bucket)?.label ?? ann.bucket;
+              const isEditing = editingId === ann.id;
+              const isLichess = ann.source === "lichess";
+              return (
+                <div
+                  key={ann.id}
+                  className={`border rounded p-2.5 text-sm cursor-pointer transition-colors ${
+                    isEditing
+                      ? "border-blue-400 bg-blue-50"
+                      : "hover:bg-gray-50"
+                  }`}
+                  onClick={() => onLoadAnnotation(ann)}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-medium text-blue-700">
+                          {bucketLabel}
                         </span>
-                      )}
-                    </span>
-                    <p className="mt-0.5 text-gray-700 line-clamp-2 text-xs">
-                      {ann.note}
-                    </p>
-                    {ann.tags && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {ann.tags}
+                        {isLichess && (
+                          <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium">
+                            Lichess import
+                            {ann.confidence != null && ` · ${ann.confidence}%`}
+                          </span>
+                        )}
+                        {ann.severity != null && (
+                          <span className="text-[10px] text-gray-400">
+                            severity {ann.severity}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-gray-700 line-clamp-2 text-xs">
+                        {ann.note}
                       </p>
-                    )}
+                      {ann.tags && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {ann.tags}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(ann.id);
+                      }}
+                      disabled={isPending}
+                      className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 shrink-0"
+                    >
+                      Delete
+                    </button>
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(ann.id);
-                    }}
-                    disabled={isPending}
-                    className="text-xs text-red-500 hover:text-red-700 disabled:opacity-40 shrink-0"
-                  >
-                    Delete
-                  </button>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Form */}
       <div className="border-t pt-3 space-y-2.5">

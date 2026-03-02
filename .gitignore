@@ -30,3 +30,4 @@ tsconfig.tsbuildinfo
 # Logs
 *.log
 npm-debug.log*
+.claude/
